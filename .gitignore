@@ -1,0 +1,17 @@
+# Compiled binareis
+*.jar
+*.class
+*.exe
+*.sc
+
+# SBT Files
+target/
+project/
+
+# Eclipse Files
+.metadata/
+.worksheet/
+.settings/
+.cache
+.classpath
+.project
