@@ -9,9 +9,11 @@ import scala.concurrent.duration._
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.{ Try, Success, Failure }
 import rx.subscriptions.CompositeSubscription
-import observablex._
 import rx.lang.scala.Observable
-import scala.util.Failure
+import observablex._
+import search._
+import rx.lang.scala.Notification.{OnError, OnNext, OnCompleted}
+import rx.lang.scala.subscriptions.Subscription
 
 trait WikipediaApi {
 
@@ -37,7 +39,7 @@ trait WikipediaApi {
      *
      * E.g. `"erik", "erik meijer", "martin` should become `"erik", "erik_meijer", "martin"`
      */
-    def sanitized: Observable[String] = obs.map(s => s.replace(" ", "_"))
+    def sanitized: Observable[String] = obs.map { _.replace(' ', '_') }
 
   }
 
@@ -48,15 +50,11 @@ trait WikipediaApi {
      *
      * E.g. `1, 2, 3, !Exception!` should become `Success(1), Success(2), Success(3), Failure(Exception), !TerminateStream!`
      */
-    def recovered: Observable[Try[T]] = Observable { observer =>
-      obs.subscribe(
-        t => observer.onNext(Success(t)),
-        { error: Throwable =>
-          observer.onNext(Failure(error))
-          observer.onCompleted //On Error the observable stream has to be terminated
-        },
-        () => observer.onCompleted
-      )
+    def recovered: Observable[Try[T]] = obs.materialize
+      .takeWhile { case _: OnCompleted[_] => false ; case _ => true }
+      .map {
+      case OnNext(v) => Success(v)
+      case OnError(e) => Failure(e)
     }
 
     /** Emits the events from the `obs` observable, until `totalSec` seconds have elapsed.
@@ -65,7 +63,14 @@ trait WikipediaApi {
      *
      * Note: uses the existing combinators on observables.
      */
-    def timedOut(totalSec: Long): Observable[T] = obs.takeUntil(Observable.interval(totalSec second).take(1))
+    def timedOut(totalSec: Long): Observable[T] =
+      obs.buffer(totalSec seconds).first.flatMap { seq =>
+        Observable { observer =>
+          seq.foreach(observer.onNext(_));
+          observer.onCompleted();
+          Subscription { }
+        }
+      }
 
 
     /** Given a stream of events `obs` and a method `requestMethod` to map a request `T` into
@@ -91,11 +96,12 @@ trait WikipediaApi {
      *
      * should return:
      *
-     * Observable(1, 1, 1, 2, 2, 2, 3, 3, 3)
+     * Observable(Success(1), Succeess(1), Succeess(1), Succeess(2), Succeess(2), Succeess(2), Succeess(3), Succeess(3), Succeess(3))
      */
-    def concatRecovered[S](requestMethod: T => Observable[S]): Observable[Try[S]] = 
-      obs.map(requestMethod(_).recovered.onErrorReturn(t => Failure(t))).concat
-      
+    def concatRecovered[S](requestMethod: T => Observable[S]): Observable[Try[S]] =
+      obs.flatMap(req => requestMethod(req).recovered)
+
   }
 
 }
+

@@ -84,35 +84,36 @@ object WikipediaSuggest extends SimpleSwingApplication with ConcreteSwingApi wit
     val searchTerms: Observable[String] = searchTermField.textValues
 
     // TO IMPLEMENT
-    val suggestions: Observable[Try[List[String]]] = searchTerms.concatRecovered(t => wikiSuggestResponseStream(t))
+    val suggestions: Observable[Try[List[String]]] =
+      searchTerms.concatRecovered(word => wikiSuggestResponseStream(word).timedOut(1))
 
 
     // TO IMPLEMENT
     val suggestionSubscription: Subscription =  suggestions.observeOn(eventScheduler) subscribe {
-      x => x match {
-        case Success(s) => suggestionList.listData = s 
-        case Failure(e) => status.text = e.getLocalizedMessage
-      }
+      x =>
+        println("sug", x)
+        if (x.isSuccess) suggestionList.listData = x.get
     }
 
     // TO IMPLEMENT
-    val selections: Observable[String] = button.clicks.map(_ => suggestionList.selection.leadIndex match {
-      case index => suggestionList.listData(index)
-    }) //Seems not correct here, need to handle non selection
+    val selections: Observable[String] =
+      button.clicks.map( b => suggestionList.selection.items.head )
 
     // TO IMPLEMENT
-    val pages: Observable[Try[String]] = selections.concatRecovered(t => wikiPageResponseStream(t)) 
+    val pages: Observable[Try[String]] =
+      selections.concatRecovered(word => wikiPageResponseStream(word).timedOut(3))
 
     // TO IMPLEMENT
     val pageSubscription: Subscription = pages.observeOn(eventScheduler) subscribe {
-      x => x match {
-        case Success(s) => editorpane.text = s
-        case Failure(e) => status.text = e.getLocalizedMessage
-      }
+      x =>
+        println("pag",x)
+        if (x.isSuccess) editorpane.peer.setText(x.get)
     }
 
   }
+
 }
+
 
 trait ConcreteWikipediaApi extends WikipediaApi {
   def wikipediaSuggestion(term: String) = Search.wikipediaSuggestion(term)
